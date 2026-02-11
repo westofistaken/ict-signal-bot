@@ -79,22 +79,43 @@ function avgRange(highs, lows, period = 20) {
   return count === 0 ? 0 : sum / count;
 }
 
-// =============== VERİ ÇEKME (ŞİMDİLİK BINANCE SPOT) ===============
+// =============== BYBIT VERİ ÇEKME ===============
+//
+// Burada Binance yerine BYBIT futures/perp kline endpoint'i kullanıyoruz.
+// .P uzantısını siliyoruz: BTCUSDT.P -> BTCUSDT
 
-// BTCUSDT.P -> BTCUSDT şeklinde temizliyoruz.
-// İleride istersen burayı Bybit / senin borsana göre değiştiririz.
+function mapTimeframeToBybit(tf) {
+  //  Bybit interval param:
+  //  "1","3","5","15","30","60","120","240","360","720","D","W","M"
+  if (tf === "5m") return "5";
+  if (tf === "15m") return "15";
+  if (tf === "1h") return "60";
+  if (tf === "4h") return "240";
+  if (tf === "1d" || tf === "1D") return "D";
+  return "15"; // default
+}
+
 async function fetchCandles(symbol, timeframe) {
   const cleanSymbol = symbol.endsWith(".P")
     ? symbol.replace(".P", "USDT")
     : symbol;
 
-  const url = `https://api.binance.com/api/v3/klines?symbol=${cleanSymbol}&interval=${timeframe}&limit=200`;
+  const bybitInterval = mapTimeframeToBybit(timeframe);
+
+  const url = `https://api.bybit.com/v5/market/kline?category=linear&symbol=${cleanSymbol}&interval=${bybitInterval}&limit=200`;
 
   const res = await axios.get(url, { timeout: 8000 });
 
-  const closes = res.data.map(k => Number(k[4]));
-  const highs = res.data.map(k => Number(k[2]));
-  const lows = res.data.map(k => Number(k[3]));
+  if (res.data.retCode !== 0) {
+    throw new Error("Bybit retCode " + res.data.retCode);
+  }
+
+  const list = res.data.result.list || [];
+
+  // Bybit list elemanları genelde string array: [openTime, open, high, low, close, volume, ...]
+  const closes = list.map(c => Number(c[4]));
+  const highs = list.map(c => Number(c[2]));
+  const lows = list.map(c => Number(c[3]));
 
   return { closes, highs, lows };
 }
@@ -103,11 +124,9 @@ async function fetchCandles(symbol, timeframe) {
 //
 // Mantık özeti:
 // - EMA20 / EMA50 ile bias (bullish / bearish)
-// - Son 30 mum: range high / low -> premium / discount bölgesi
-// - OTE benzeri bölge (0.618 - 0.79 fib gibi)
-// - RSI filtresi ile aşırı uçları ele
-// - Long için: bullish bias + discount OTE
-// - Short için: bearish bias + premium OTE
+// - Son 30 mum: range high / low -> premium / discount
+// - OTE tarzı bölge (0.618 - 0.79 fib)
+// - RSI filtresi
 
 function generateICTLikeSignal(symbol, timeframe, closes, highs, lows) {
   if (closes.length < 80) return null;
@@ -145,7 +164,6 @@ function generateICTLikeSignal(symbol, timeframe, closes, highs, lows) {
     const swingHigh = recentHigh;
     const swingLow = recentLow;
     const diff = swingHigh - swingLow;
-    // yukarıdan aşağı fib çekmiş gibi
     oteLow = swingLow + diff * (1 - 0.79);
     oteHigh = swingLow + diff * (1 - 0.618);
   }
@@ -156,10 +174,9 @@ function generateICTLikeSignal(symbol, timeframe, closes, highs, lows) {
   let sl = null;
   let reason = "No setup";
 
-  // LONG SETUP
   if (
     bullishBias &&
-    price < mid &&              // discount
+    price < mid &&
     rsiNow !== null &&
     rsiNow > 40 &&
     rsiNow < 70 &&
@@ -170,12 +187,12 @@ function generateICTLikeSignal(symbol, timeframe, closes, highs, lows) {
     entry = price;
     tp = entry + range * 2.5;
     sl = entry - range * 1.2;
-    reason = `[${timeframe}] Bullish bias, discount OTE, RSI ${rsiNow.toFixed(1)}`;
-  }
-  // SHORT SETUP
-  else if (
+    reason = `[${timeframe}] Bullish bias, discount OTE, RSI ${rsiNow.toFixed(
+      1
+    )}`;
+  } else if (
     bearishBias &&
-    price > mid &&             // premium
+    price > mid &&
     rsiNow !== null &&
     rsiNow < 60 &&
     rsiNow > 30 &&
@@ -186,7 +203,9 @@ function generateICTLikeSignal(symbol, timeframe, closes, highs, lows) {
     entry = price;
     tp = entry - range * 2.5;
     sl = entry + range * 1.2;
-    reason = `[${timeframe}] Bearish bias, premium OTE, RSI ${rsiNow.toFixed(1)}`;
+    reason = `[${timeframe}] Bearish bias, premium OTE, RSI ${rsiNow.toFixed(
+      1
+    )}`;
   }
 
   return {
@@ -204,14 +223,16 @@ function generateICTLikeSignal(symbol, timeframe, closes, highs, lows) {
 // =============== TARAMA DÖNGÜSÜ ===============
 
 async function scanAll() {
-  console.log("🔄 Çoklu timeframe ICT sinyal taraması başlıyor...");
+  console.log("🔄 Çoklu timeframe ICT sinyal taraması (BYBIT) başlıyor...");
 
   for (const symbol of SYMBOLS) {
     for (const tf of TIMEFRAMES) {
       try {
         const { closes, highs, lows } = await fetchCandles(symbol, tf);
         const sig = generateICTLikeSignal(symbol, tf, closes, highs, lows);
+
         if (!lastSignals[symbol]) lastSignals[symbol] = {};
+
         if (sig) {
           lastSignals[symbol][tf] = sig;
           console.log(
@@ -281,7 +302,7 @@ app.get("/", (req, res) => {
   }
 
   res.send(`
-    <h1>📊 ICT-Style Multi-Timeframe Sinyal Botu</h1>
+    <h1>📊 ICT-Style Multi-Timeframe Sinyal Botu (Bybit Datası)</h1>
     <p><b>Mode:</b> Sinyal (gerçek trade YOK, sadece entry/TP/SL hesaplar)</p>
     <p><b>Timeframes:</b> ${TIMEFRAMES.join(", ")}</p>
     <p><b>Pairs:</b> ${SYMBOLS.join(", ")}</p>
@@ -302,5 +323,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log("🌐 ICT multi-timeframe signal server running on port", PORT);
+  console.log("🌐 ICT multi-timeframe signal server (BYBIT) running on port", PORT);
 });
