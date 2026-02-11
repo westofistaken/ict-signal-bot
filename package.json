@@ -1,0 +1,14 @@
+{
+  "name": "ict-signals-bot",
+  "version": "1.0.0",
+  "description": "ICT-style multi-timeframe long/short signal bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "express": "^4.18.2",
+    "fs": "0.0.1-security"
+  }
+}
