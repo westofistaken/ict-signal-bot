@@ -1,0 +1,27 @@
+{
+  "mode": "signals",
+  "scanIntervalSeconds": 60,
+  "symbols": [
+    "BTCUSDT.P",
+    "ETHUSDT.P",
+    "SOLUSDT.P",
+    "ETCUSDT.P",
+    "AVAXUSDT.P",
+    "AAVEUSDT.P",
+    "BNBUSDT.P",
+    "INJUSDT.P",
+    "DOGEUSDT.P",
+    "LINKUSDT.P",
+    "XRPUSDT.P",
+    "ADAUSDT.P",
+    "LTCUSDT.P",
+    "DOTUSDT.P",
+    "MATICUSDT.P",
+    "OPUSDT.P",
+    "ARBUSDT.P",
+    "NEARUSDT.P",
+    "SUIUSDT.P",
+    "TONUSDT.P"
+  ],
+  "timeframes": ["5m", "15m", "1h", "4h", "1d"]
+}
